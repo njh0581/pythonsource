@@ -1,10 +1,41 @@
-from django.shortcuts import render, get_object_or_404, redirect
-from .models import Post
+from django.shortcuts import render, get_object_or_404, redirect, resolve_url
+from .models import Post, Comment
 from .forms import PostForm
 from django.contrib.auth.decorators import login_required
 from django.utils import timezone
+from django.contrib import messages
 
 from django.core.paginator import Paginator
+from django.http import JsonResponse
+
+
+def post_like(request, post_id):
+    post = get_object_or_404(Post, id=post_id)
+
+    # if post.user == request.user:
+    #     messages.error(request, "본인이 작성한 글은 추천할수 없습니다")
+    # else:
+    is_liked = post.likes.filter(id=request.user.id).exists()
+    is_liked_change = False
+    if is_liked:
+        post.likes.remove(request.user)
+    else:
+        post.likes.add(request.user)
+        is_liked_change = True
+    return JsonResponse({"likes": post.likes.count(), "is_liked": is_liked_change})
+
+
+@login_required(login_url="common:login")
+def comment_create(request, post_id):
+    post = get_object_or_404(Post, id=post_id)
+    if request.method == "POST":
+        content = request.POST.get("content").strip()
+
+        # comment = Comment.objects.create(user=request.user,post=post,content=content)
+        comment = Comment(user=request.user, post=post, content=content)
+        comment.save()
+        return redirect("blog:detail", post_id)
+    return redirect("blog:detail", post_id)
 
 
 @login_required(login_url="common:login")
@@ -20,6 +51,8 @@ def create(request):
             post = form.save(commit=False)
             post.user = request.user
             post.save()
+            # 태그 저장
+            form.save_m2m()
             return redirect("blog:list")
     else:
         form = PostForm()
@@ -61,5 +94,10 @@ def list(request):
 
 def detail(request, post_id):
     post = get_object_or_404(Post, id=post_id)
-    context = {"post": post}
+    is_liked = False
+    # 로그인 유저가 해당 게시물에 좋아요 했는지 여부
+    if post.likes.filter(id=request.user.id).exists():
+        is_liked = True
+
+    context = {"post": post, "is_liked": is_liked}
     return render(request, "blog/post.html", context)
